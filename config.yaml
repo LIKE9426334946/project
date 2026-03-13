@@ -3,7 +3,7 @@ num_classes: 4 #! 四类
 class_names: [class_0, class_1, class_2, class_3]
 
 data:
-  root: data/dataset
+  root: /kaggle/input/datasets/thenoart/project/project
   images_dir: not_define
   masks_dir: not_define
   image_size: [512, 512]
