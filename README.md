@@ -1,4 +1,14 @@
 # project
-本科毕业论文所用数据集
+本科毕业论文
+
+## 模型结构
+ResNet34 encoder + U-Net decoder + scSE attention + ASPP bottleneck。
+
+## 数据集
+有训练集和验证集  
+将训练集的一部分作为测试集
+
+## 说明
+所有训练输出都保存在runs目录下
 
 ## 需要修改的地方
