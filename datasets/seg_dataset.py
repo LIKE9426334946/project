@@ -6,6 +6,7 @@ from torch.utils.data import Dataset
 
 
 CLASS_NAMES = ["class_0", "class_1", "class_2", "class_3"]
+#! 用于可视化分割结果
 ID2COLOR = {
     0: (0, 0, 0),
     1: (255, 0, 0),
