@@ -3,7 +3,7 @@ from typing import List
 
 from PIL import Image
 from torch.utils.data import Dataset
-
+import numpy as np
 
 CLASS_NAMES = ["class_0", "class_1", "class_2", "class_3"]
 #! 用于可视化分割结果
@@ -34,17 +34,25 @@ class SegDataset(Dataset):
     def __len__(self) -> int:
         return len(self.names)
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx):
         name = self.names[idx]
         image_path = self.image_dir / name
         mask_path = self.mask_dir / name
-
+    
         image = Image.open(image_path).convert("RGB")
-        mask = Image.open(mask_path)
-
+    
+        # ====== 关键修改 ======
+        mask_rgb = np.array(Image.open(mask_path).convert("RGB"))
+    
+        # 白色(255,255,255) -> 1
+        # 黑色(0,0,0) -> 0
+        mask = (mask_rgb[:, :, 0] == 255).astype(np.uint8)
+    
+        mask = Image.fromarray(mask)
+    
         if self.transform is not None:
             image, mask = self.transform(image, mask)
-
+    
         return {
             "image": image,
             "mask": mask.long(),
