@@ -1,12 +1,12 @@
 seed: 23
-num_classes: 4 #! 四类
-class_names: [class_0, class_1, class_2, class_3]
+num_classes: 2
+class_names: [background, road]
 
 data:
   root: /kaggle/input/datasets/thenoart/project/project
   images_dir: not_define
   masks_dir: not_define
-  image_size: [1024, 1024]
+  image_size: [512, 512]
   num_workers: 4
   split_dir: runs/splits
   test_ratio: 0.2
