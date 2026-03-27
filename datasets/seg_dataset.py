@@ -34,10 +34,14 @@ class SegDataset(Dataset):
         return len(self.names)
 
     def __getitem__(self, idx):
+        # name = self.names[idx]
+
+        # image_path = self.image_dir / name
+        # mask_path = self.mask_dir / name
         name = self.names[idx]
 
         image_path = self.image_dir / name
-        mask_path = self.mask_dir / name
+        mask_path = self.mask_dir / name.replace(".bmp", ".png")
 
         image = Image.open(image_path).convert("RGB")
         mask = Image.open(mask_path)  # 单通道类别图
