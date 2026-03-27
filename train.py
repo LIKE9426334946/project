@@ -99,7 +99,7 @@ def main():
         make_split(
             cfg["data"]["root"],
             str(split_dir),
-            test_ratio=cfg["data"]["test_ratio"],
+            val_ratio=cfg["data"]["val_ratio"],
             seed=cfg["seed"],
         )
 
