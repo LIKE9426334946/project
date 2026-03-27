@@ -12,3 +12,6 @@ ResNet34 encoder + U-Net decoder + scSE attention + ASPP bottleneck。
 所有训练输出都保存在runs目录下
 
 ## 需要修改的地方
+
+
+## 运行步骤
