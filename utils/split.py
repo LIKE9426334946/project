@@ -16,11 +16,11 @@ def make_split(data_root: str, output_dir: str, val_ratio: float = 0.2, seed: in
 
     train_names = sorted([
         p.name for p in train_img_dir.glob("*.bmp")
-        if (train_mask_dir / p.name).exists()
+        if (train_mask_dir / p.name.replace(".bmp", ".png")).exists()
     ])
     test_names = sorted([
         p.name for p in test_img_dir.glob("*.bmp")
-        if (test_mask_dir / p.name).exists()
+        if (test_mask_dir / p.name.replace(".bmp", ".png")).exists()
     ])
 
     if len(train_names) == 0:
