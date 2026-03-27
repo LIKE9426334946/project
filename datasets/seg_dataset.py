@@ -4,7 +4,13 @@ import numpy as np
 from torch.utils.data import Dataset
 
 CLASS_NAMES = ["class_0", "class_1", "class_2", "class_3"]
-
+#! 用于可视化分割结果
+ID2COLOR = {
+    0: (0, 0, 0),
+    1: (255, 0, 0),
+    2: (0, 255, 0),
+    3: (0, 0, 255),
+}
 
 class SegDataset(Dataset):
     def __init__(self, root, split_file, split="train", transform=None):
