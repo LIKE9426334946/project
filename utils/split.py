@@ -19,7 +19,7 @@ def make_split(data_root: str, output_dir: str, val_ratio: float = 0.2, seed: in
         if (train_mask_dir / p.name).exists()
     ])
     test_names = sorted([
-        p.name for p in test_img_dir.glob("*.png")
+        p.name for p in test_img_dir.glob("*.bmp")
         if (test_mask_dir / p.name).exists()
     ])
 
