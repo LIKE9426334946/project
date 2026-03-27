@@ -50,6 +50,7 @@ def make_split(data_root: str, output_dir: str, val_ratio: float = 0.2, seed: in
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    # 注意修改这里
     parser.add_argument("--data_root", type=str, default="/kaggle/input/datasets/thenoart/data1600")
     parser.add_argument("--output_dir", type=str, default="runs/splits")
     parser.add_argument("--val_ratio", type=float, default=0.2)
