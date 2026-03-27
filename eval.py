@@ -41,7 +41,9 @@ def main():
 
     transforms = get_transforms(tuple(cfg["data"]["image_size"]))
     data_split = "train" if args.split == "test" else args.split
-    dataset = SegDataset(cfg["data"]["root"], split=data_split, transform=transforms["eval"], names=names)
+    
+    dataset = SegDataset(cfg["data"]["root"], str(split_dir / "test.txt"), split="test", transform=transforms["eval"])
+    # dataset = SegDataset(cfg["data"]["root"], split=data_split, transform=transforms["eval"], names=names)
     loader = DataLoader(
         dataset,
         batch_size=cfg["train"]["batch_size"],
