@@ -6,7 +6,7 @@ data:
   root: /kaggle/input/datasets/thenoart/data1600
   images_dir: not_define
   masks_dir: not_define
-  image_size: [512， 512]
+  image_size: [512, 512]
   num_workers: 4
   split_dir: runs/splits
   val_ratio: 0.2
