@@ -114,7 +114,8 @@ def main():
         yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    transforms = get_transforms(tuple(cfg["data"]["image_size"]))
+    image_size = tuple(int(x) for x in cfg["data"]["image_size"])
+    transforms = get_transforms(image_size)
 
     with open(split_dir / "train.txt", "r", encoding="utf-8") as f:
         train_names = [line.strip() for line in f if line.strip()]
