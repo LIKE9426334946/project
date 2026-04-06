@@ -15,9 +15,9 @@ ResNet34 encoder + U-Net decoder + scSE attention + ASPP bottleneck。
 
 
 ## 运行步骤
-%cd /kaggle/working
-!rm -rf /kaggle/working/project
-!git clone https://github.com/LIKE9426334946/project.git
-%cd /kaggle/working/project
-!python3 utils/split.py
-!python3 train.py
+%cd /kaggle/working  
+!rm -rf /kaggle/working/project  
+!git clone https://github.com/LIKE9426334946/project.git  
+%cd /kaggle/working/project  
+!python3 utils/split.py  
+!python3 train.py  
