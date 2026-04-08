@@ -2,18 +2,18 @@ import argparse
 import json
 from pathlib import Path
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import yaml
 from tqdm import tqdm
 
-from datasets.seg_dataset import SegDataset
 from datasets.transforms import get_transforms
-from losses import CEDiceLoss
+from datasets.whdld_dataset import WHDLDataset
+from losses import CEDiceBoundaryDeepSupervisionLoss
 from models.unet_resnet_attn import UNetResNet34Attn
 from utils.metrics import SegmentationMetric
 from utils.visualize import save_visualizations
-
 
 
 def parse_args():
@@ -24,6 +24,27 @@ def parse_args():
     return parser.parse_args()
 
 
+def to_json_serializable(obj):
+    """
+    把 numpy / torch 类型递归转成可被 json 序列化的 python 原生类型
+    """
+    if isinstance(obj, dict):
+        return {k: to_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [to_json_serializable(v) for v in obj]
+    elif isinstance(obj, tuple):
+        return [to_json_serializable(v) for v in obj]
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, torch.Tensor):
+        return obj.detach().cpu().tolist()
+    else:
+        return obj
+
 
 def main():
     args = parse_args()
@@ -33,15 +54,9 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     split_dir = Path(cfg["data"]["split_dir"])
     split_file = split_dir / f"{args.split}.txt"
-    if not split_file.exists():
-        raise FileNotFoundError(f"Missing split file: {split_file}")
-
-    with open(split_file, "r", encoding="utf-8") as f:
-        names = [line.strip() for line in f if line.strip()]
 
     transforms = get_transforms(tuple(cfg["data"]["image_size"]))
-    data_split = "train" if args.split == "test" else args.split
-    dataset = SegDataset(cfg["data"]["root"], split=data_split, transform=transforms["eval"], names=names)
+    dataset = WHDLDataset(cfg["data"]["root"], str(split_file), transform=transforms["eval"])
     loader = DataLoader(
         dataset,
         batch_size=cfg["train"]["batch_size"],
@@ -56,19 +71,29 @@ def main():
         pretrained=False,
         use_scse=cfg["model"]["use_scse"],
         use_aspp=cfg["model"]["use_aspp"],
+        use_deep_supervision=cfg["model"].get("use_deep_supervision", True),
+        use_boundary_branch=cfg["model"].get("use_boundary_branch", True),
     ).to(device)
+
     checkpoint = torch.load(args.checkpoint, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
-    criterion = CEDiceLoss(
+    criterion = CEDiceBoundaryDeepSupervisionLoss(
         num_classes=cfg["num_classes"],
         ce_weight=cfg["loss"]["ce_weight"],
         dice_weight=cfg["loss"]["dice_weight"],
+        ds_weight=cfg["loss"].get("ds_weight", 0.4),
+        boundary_weight=cfg["loss"].get("boundary_weight", 0.2),
     )
+
     metric = SegmentationMetric(cfg["num_classes"])
 
     total_loss = 0.0
+    total_main_loss = 0.0
+    total_ds_loss = 0.0
+    total_boundary_loss = 0.0
+
     vis_dir = Path(cfg["runs"]["root"]) / "exp" / f"eval_{args.split}"
     vis_dir.mkdir(parents=True, exist_ok=True)
     saved = False
@@ -77,17 +102,33 @@ def main():
         for batch in tqdm(loader, desc=f"eval-{args.split}"):
             images = batch["image"].to(device, non_blocking=True)
             masks = batch["mask"].to(device, non_blocking=True)
-            logits = model(images)
-            loss = criterion(logits, masks)
+
+            outputs = model(images)
+            loss, loss_dict = criterion(outputs, masks)
+
+            logits = outputs["main"]
             preds = torch.argmax(logits, dim=1)
+
             metric.update(preds, masks)
-            total_loss += loss.item() * images.size(0)
+
+            batch_size = images.size(0)
+            total_loss += loss.item() * batch_size
+            total_main_loss += float(loss_dict["loss_main"]) * batch_size
+            total_ds_loss += float(loss_dict["loss_ds"]) * batch_size
+            total_boundary_loss += float(loss_dict["loss_boundary"]) * batch_size
+
             if not saved:
                 save_visualizations(batch, preds, str(vis_dir), max_items=8)
                 saved = True
 
     results = metric.compute()
     results["loss"] = total_loss / len(loader.dataset)
+    results["loss_main"] = total_main_loss / len(loader.dataset)
+    results["loss_ds"] = total_ds_loss / len(loader.dataset)
+    results["loss_boundary"] = total_boundary_loss / len(loader.dataset)
+
+    results = to_json_serializable(results)
+
     print(json.dumps(results, indent=2, ensure_ascii=False))
 
     with open(vis_dir / "metrics.json", "w", encoding="utf-8") as f:
