@@ -99,7 +99,7 @@ def main():
         make_split(
             cfg["data"]["root"],
             str(split_dir),
-            test_ratio=cfg["data"]["test_ratio"],
+            val_ratio=cfg["data"]["val_ratio"],
             seed=cfg["seed"],
         )
 
@@ -121,8 +121,10 @@ def main():
     with open(split_dir / "val.txt", "r", encoding="utf-8") as f:
         val_names = [line.strip() for line in f if line.strip()]
 
-    train_ds = SegDataset(cfg["data"]["root"], split="train", transform=transforms["train"], names=train_names)
-    val_ds = SegDataset(cfg["data"]["root"], split="val", transform=transforms["eval"], names=val_names)
+    train_ds = SegDataset(cfg["data"]["root"], str(split_dir / "train.txt"), split="train", transform=transforms["train"])
+    val_ds = SegDataset(cfg["data"]["root"], str(split_dir / "val.txt"), split="val", transform=transforms["eval"])
+    # train_ds = SegDataset(cfg["data"]["root"], split="train", transform=transforms["train"], names=train_names)
+    # val_ds = SegDataset(cfg["data"]["root"], split="val", transform=transforms["eval"], names=val_names)
 
     train_loader = DataLoader(
         train_ds,

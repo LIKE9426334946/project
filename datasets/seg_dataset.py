@@ -1,9 +1,7 @@
 from pathlib import Path
-from typing import List
-
 from PIL import Image
+import numpy as np
 from torch.utils.data import Dataset
-
 
 CLASS_NAMES = ["class_0", "class_1", "class_2", "class_3"]
 #! 用于可视化分割结果
@@ -14,33 +12,39 @@ ID2COLOR = {
     3: (0, 0, 255),
 }
 
-
 class SegDataset(Dataset):
-    def __init__(self, root: str, split: str, transform=None, names: List[str] | None = None):
+    def __init__(self, root, split_file, split="train", transform=None):
         self.root = Path(root)
-        self.split = split
-        self.image_dir = self.root / split / "imgs"
-        self.mask_dir = self.root / split / "masks"
         self.transform = transform
+        self.split = split
 
-        if names is None:
-            self.names = sorted([p.name for p in self.image_dir.glob("*.png")])
+        if split in ["train", "val"]:
+            self.image_dir = self.root / "training" / "images2"
+            self.mask_dir = self.root / "training" / "class_si"
+        elif split == "test":
+            self.image_dir = self.root / "test" / "images2"
+            self.mask_dir = self.root / "test" / "class_si"
         else:
-            self.names = names
+            raise ValueError(f"Unsupported split: {split}")
 
-        if len(self.names) == 0:
-            raise RuntimeError(f"No png files found in {self.image_dir}")
+        with open(split_file, "r", encoding="utf-8") as f:
+            self.names = [line.strip() for line in f if line.strip()]
 
-    def __len__(self) -> int:
+    def __len__(self):
         return len(self.names)
 
-    def __getitem__(self, idx: int):
+    def __getitem__(self, idx):
+        # name = self.names[idx]
+
+        # image_path = self.image_dir / name
+        # mask_path = self.mask_dir / name
         name = self.names[idx]
+
         image_path = self.image_dir / name
-        mask_path = self.mask_dir / name
+        mask_path = self.mask_dir / name.replace(".bmp", ".png")
 
         image = Image.open(image_path).convert("RGB")
-        mask = Image.open(mask_path)
+        mask = Image.open(mask_path)  # 单通道类别图
 
         if self.transform is not None:
             image, mask = self.transform(image, mask)
