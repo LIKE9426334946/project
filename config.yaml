@@ -17,6 +17,8 @@ model:
   pretrained: true
   use_scse: true
   use_aspp: true
+  use_deep_supervision: true
+  use_boundary_branch: true
 
 train:
   batch_size: 16
@@ -34,6 +36,8 @@ loss:
   name: ce_dice
   ce_weight: 1.0
   dice_weight: 0.5
+  use_deep_supervision: true
+  use_boundary_branch: true
 
 runs:
   root: runs
