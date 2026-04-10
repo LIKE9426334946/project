@@ -8,8 +8,8 @@ from torch.utils.data import DataLoader
 import yaml
 from tqdm import tqdm
 
+from datasets.seg_dataset import SegDataset
 from datasets.transforms import get_transforms
-from datasets.whdld_dataset import WHDLDataset
 from losses import CEDiceBoundaryDeepSupervisionLoss
 from models.unet_resnet_attn import UNetResNet34Attn
 from utils.metrics import SegmentationMetric
@@ -25,9 +25,6 @@ def parse_args():
 
 
 def to_json_serializable(obj):
-    """
-    把 numpy / torch 类型递归转成可被 json 序列化的 python 原生类型
-    """
     if isinstance(obj, dict):
         return {k: to_json_serializable(v) for k, v in obj.items()}
     elif isinstance(obj, list):
@@ -41,9 +38,15 @@ def to_json_serializable(obj):
     elif isinstance(obj, np.integer):
         return int(obj)
     elif isinstance(obj, torch.Tensor):
-        return obj.detach().cpu().tolist()
+        return obj.detach().cpu().tolist() if obj.numel() > 1 else obj.item()
     else:
         return obj
+
+
+def parse_image_size(size_cfg):
+    if isinstance(size_cfg, str):
+        size_cfg = [int(x.strip()) for x in size_cfg.split(",")]
+    return tuple(size_cfg)
 
 
 def main():
@@ -52,11 +55,25 @@ def main():
         cfg = yaml.safe_load(f)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
     split_dir = Path(cfg["data"]["split_dir"])
     split_file = split_dir / f"{args.split}.txt"
+    if not split_file.exists():
+        raise FileNotFoundError(f"Missing split file: {split_file}")
 
-    transforms = get_transforms(tuple(cfg["data"]["image_size"]))
-    dataset = WHDLDataset(cfg["data"]["root"], str(split_file), transform=transforms["eval"])
+    with open(split_file, "r", encoding="utf-8") as f:
+        names = [line.strip() for line in f if line.strip()]
+
+    image_size = parse_image_size(cfg["data"]["image_size"])
+    transforms = get_transforms(image_size)
+
+    data_split = "train" if args.split == "test" else args.split
+    dataset = SegDataset(
+        cfg["data"]["root"],
+        split=data_split,
+        transform=transforms["eval"],
+        names=names,
+    )
     loader = DataLoader(
         dataset,
         batch_size=cfg["train"]["batch_size"],
