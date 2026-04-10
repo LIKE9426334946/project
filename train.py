@@ -11,8 +11,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import yaml
 
+from datasets.seg_dataset import CLASS_NAMES, SegDataset
 from datasets.transforms import get_transforms
-from datasets.whdld_dataset import CLASS_NAMES, WHDLDataset
 from losses import CEDiceBoundaryDeepSupervisionLoss
 from models.unet_resnet_attn import UNetResNet34Attn
 from utils.metrics import SegmentationMetric
@@ -32,10 +32,27 @@ def load_config(path: str):
         return yaml.safe_load(f)
 
 
+def to_serializable(v):
+    if isinstance(v, dict):
+        return {k: to_serializable(val) for k, val in v.items()}
+    if isinstance(v, list):
+        return [to_serializable(x) for x in v]
+    if isinstance(v, tuple):
+        return [to_serializable(x) for x in v]
+    if isinstance(v, np.ndarray):
+        return v.tolist()
+    if isinstance(v, (np.float32, np.float64, np.int32, np.int64)):
+        return v.item()
+    if isinstance(v, torch.Tensor):
+        return v.detach().cpu().item() if v.numel() == 1 else v.detach().cpu().tolist()
+    return v
+
+
 @torch.no_grad()
 def validate(model, loader, criterion, metric, device, save_dir=None, vis_samples=4):
     model.eval()
     metric.reset()
+
     total_loss = 0.0
     total_main_loss = 0.0
     total_ds_loss = 0.0
@@ -53,8 +70,8 @@ def validate(model, loader, criterion, metric, device, save_dir=None, vis_sample
         preds = torch.argmax(logits, dim=1)
 
         metric.update(preds, masks)
-        batch_size = images.size(0)
 
+        batch_size = images.size(0)
         total_loss += loss.item() * batch_size
         total_main_loss += float(loss_dict["loss_main"]) * batch_size
         total_ds_loss += float(loss_dict["loss_ds"]) * batch_size
@@ -74,6 +91,7 @@ def validate(model, loader, criterion, metric, device, save_dir=None, vis_sample
 
 def train_one_epoch(model, loader, optimizer, criterion, device, scaler, amp):
     model.train()
+
     total_loss = 0.0
     total_main_loss = 0.0
     total_ds_loss = 0.0
@@ -108,16 +126,6 @@ def train_one_epoch(model, loader, optimizer, criterion, device, scaler, amp):
     }
 
 
-def to_serializable(v):
-    if isinstance(v, np.ndarray):
-        return v.tolist()
-    if isinstance(v, (np.float32, np.float64, np.int32, np.int64)):
-        return v.item()
-    if isinstance(v, torch.Tensor):
-        return v.detach().cpu().item() if v.numel() == 1 else v.detach().cpu().tolist()
-    return v
-
-
 def main():
     args = parse_args()
     cfg = load_config(args.config)
@@ -130,17 +138,19 @@ def main():
     split_dir.mkdir(parents=True, exist_ok=True)
 
     if not (split_dir / "train.txt").exists():
-        make_split(cfg["data"]["root"], str(split_dir), seed=cfg["seed"])
+        make_split(
+            cfg["data"]["root"],
+            str(split_dir),
+            test_ratio=cfg["data"]["test_ratio"],
+            seed=cfg["seed"],
+        )
 
     exp_dir = runs_root / "exp"
-    exp_dir.mkdir(parents=True, exist_ok=True)
-
     ckpt_dir = exp_dir / "checkpoints"
     vis_dir = exp_dir / "visualizations"
     log_dir = exp_dir / "logs"
-    ckpt_dir.mkdir(parents=True, exist_ok=True)
-    vis_dir.mkdir(parents=True, exist_ok=True)
-    log_dir.mkdir(parents=True, exist_ok=True)
+    for p in [exp_dir, ckpt_dir, vis_dir, log_dir]:
+        p.mkdir(parents=True, exist_ok=True)
 
     with open(exp_dir / "used_config.yaml", "w", encoding="utf-8") as f:
         yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
@@ -148,15 +158,22 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     transforms = get_transforms(tuple(cfg["data"]["image_size"]))
 
-    train_ds = WHDLDataset(
+    with open(split_dir / "train.txt", "r", encoding="utf-8") as f:
+        train_names = [line.strip() for line in f if line.strip()]
+    with open(split_dir / "val.txt", "r", encoding="utf-8") as f:
+        val_names = [line.strip() for line in f if line.strip()]
+
+    train_ds = SegDataset(
         cfg["data"]["root"],
-        str(split_dir / "train.txt"),
-        transform=transforms["train"]
+        split="train",
+        transform=transforms["train"],
+        names=train_names,
     )
-    val_ds = WHDLDataset(
+    val_ds = SegDataset(
         cfg["data"]["root"],
-        str(split_dir / "val.txt"),
-        transform=transforms["eval"]
+        split="val",
+        transform=transforms["eval"],
+        names=val_names,
     )
 
     train_loader = DataLoader(
@@ -195,12 +212,12 @@ def main():
     optimizer = AdamW(
         model.parameters(),
         lr=cfg["train"]["lr"],
-        weight_decay=cfg["train"]["weight_decay"]
+        weight_decay=cfg["train"]["weight_decay"],
     )
     scheduler = CosineAnnealingLR(
         optimizer,
         T_max=cfg["train"]["epochs"],
-        eta_min=cfg["scheduler"]["min_lr"]
+        eta_min=cfg["scheduler"]["min_lr"],
     )
     scaler = GradScaler("cuda", enabled=cfg["train"]["amp"])
     metric = SegmentationMetric(cfg["num_classes"])
@@ -210,7 +227,13 @@ def main():
 
     for epoch in range(1, cfg["train"]["epochs"] + 1):
         train_stats = train_one_epoch(
-            model, train_loader, optimizer, criterion, device, scaler, cfg["train"]["amp"]
+            model,
+            train_loader,
+            optimizer,
+            criterion,
+            device,
+            scaler,
+            cfg["train"]["amp"],
         )
 
         val_metrics = validate(
@@ -225,54 +248,51 @@ def main():
 
         scheduler.step()
 
-        val_metrics = {k: to_serializable(v) for k, v in val_metrics.items()}
-        train_stats = {k: to_serializable(v) for k, v in train_stats.items()}
-
         record = {
-            "epoch": int(epoch),
-            "lr": float(optimizer.param_groups[0]["lr"]),
-            "train_loss": float(train_stats["loss"]),
-            "train_loss_main": float(train_stats["loss_main"]),
-            "train_loss_ds": float(train_stats["loss_ds"]),
-            "train_loss_boundary": float(train_stats["loss_boundary"]),
+            "epoch": epoch,
+            "lr": optimizer.param_groups[0]["lr"],
+            "train_loss": train_stats["loss"],
+            "train_loss_main": train_stats["loss_main"],
+            "train_loss_ds": train_stats["loss_ds"],
+            "train_loss_boundary": train_stats["loss_boundary"],
             **val_metrics,
         }
+        record = to_serializable(record)
 
         history.append(record)
-
         with open(log_dir / "history.json", "w", encoding="utf-8") as f:
             json.dump(history, f, ensure_ascii=False, indent=2)
 
         print(
             f"Epoch [{epoch:03d}/{cfg['train']['epochs']:03d}] "
-            f"train_loss={train_stats['loss']:.4f} "
-            f"(main={train_stats['loss_main']:.4f}, ds={train_stats['loss_ds']:.4f}, boundary={train_stats['loss_boundary']:.4f}) "
-            f"val_loss={val_metrics['loss']:.4f} "
-            f"(main={val_metrics['loss_main']:.4f}, ds={val_metrics['loss_ds']:.4f}, boundary={val_metrics['loss_boundary']:.4f}) "
-            f"mIoU={val_metrics['mIoU']:.4f} "
-            f"mPA={val_metrics['mPA']:.4f} "
-            f"Precision={val_metrics['Precision']:.4f} "
-            f"Recall={val_metrics['Recall']:.4f}"
+            f"train_loss={record['train_loss']:.4f} "
+            f"(main={record['train_loss_main']:.4f}, ds={record['train_loss_ds']:.4f}, boundary={record['train_loss_boundary']:.4f}) "
+            f"val_loss={record['loss']:.4f} "
+            f"(main={record['loss_main']:.4f}, ds={record['loss_ds']:.4f}, boundary={record['loss_boundary']:.4f}) "
+            f"mIoU={record['mIoU']:.4f} "
+            f"mPA={record['mPA']:.4f} "
+            f"Precision={record['Precision']:.4f} "
+            f"Recall={record['Recall']:.4f}"
         )
 
-        current_miou = float(val_metrics["mIoU"])
-        if current_miou > best_miou:
-            best_miou = current_miou
+        current_miou = float(record["mIoU"])
 
         checkpoint = {
-            "epoch": int(epoch),
+            "epoch": epoch,
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
             "scheduler_state_dict": scheduler.state_dict(),
             "scaler_state_dict": scaler.state_dict() if cfg["train"]["amp"] else None,
-            "best_miou": float(best_miou),
+            "best_miou": best_miou,
             "config": cfg,
             "class_names": CLASS_NAMES,
         }
 
         torch.save(checkpoint, ckpt_dir / "last.pth")
 
-        if current_miou == best_miou:
+        if current_miou > best_miou:
+            best_miou = current_miou
+            checkpoint["best_miou"] = best_miou
             torch.save(checkpoint, ckpt_dir / "best.pth")
             print(f"[*] Best model updated at epoch {epoch}, mIoU={best_miou:.4f}")
 
