@@ -1,24 +1,34 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torchvision.models import resnet34, ResNet34_Weights
-
-from models.attention import ASPP, ConvBNReLU, scSE
 
 
 class DecoderBlock(nn.Module):
-    def __init__(self, in_channels: int, skip_channels: int, out_channels: int, use_scse: bool = True):
+    def __init__(self, in_channels: int, out_channels: int):
         super().__init__()
-        self.conv1 = ConvBNReLU(in_channels + skip_channels, out_channels)
-        self.conv2 = ConvBNReLU(out_channels, out_channels)
-        self.attn = scSE(out_channels) if use_scse else nn.Identity()
+        mid_channels = in_channels // 4
+        self.block = nn.Sequential(
+            nn.Conv2d(in_channels, mid_channels, kernel_size=1, bias=False),
+            nn.BatchNorm2d(mid_channels),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(
+                mid_channels,
+                mid_channels,
+                kernel_size=3,
+                stride=2,
+                padding=1,
+                output_padding=1,
+                bias=False,
+            ),
+            nn.BatchNorm2d(mid_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mid_channels, out_channels, kernel_size=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+        )
 
-    def forward(self, x: torch.Tensor, skip: torch.Tensor) -> torch.Tensor:
-        x = F.interpolate(x, size=skip.shape[-2:], mode="bilinear", align_corners=False)
-        x = torch.cat([skip, x], dim=1)
-        x = self.conv1(x)
-        x = self.conv2(x)
-        return self.attn(x)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.block(x)
 
 
 class UNetResNet34Attn(nn.Module):
@@ -31,6 +41,7 @@ class UNetResNet34Attn(nn.Module):
         use_aspp: bool = True,
     ):
         super().__init__()
+        _ = use_scse, use_aspp
         weights = ResNet34_Weights.DEFAULT if pretrained else None
         backbone = resnet34(weights=weights)
 
@@ -47,40 +58,35 @@ class UNetResNet34Attn(nn.Module):
 
         self.stem = nn.Sequential(backbone.conv1, backbone.bn1, backbone.relu)
         self.maxpool = backbone.maxpool
-        self.layer1 = backbone.layer1
-        self.layer2 = backbone.layer2
-        self.layer3 = backbone.layer3
-        self.layer4 = backbone.layer4
+        self.encoder1 = backbone.layer1
+        self.encoder2 = backbone.layer2
+        self.encoder3 = backbone.layer3
+        self.encoder4 = backbone.layer4
 
-        self.skip1 = scSE(64) if use_scse else nn.Identity()
-        self.skip2 = scSE(64) if use_scse else nn.Identity()
-        self.skip3 = scSE(128) if use_scse else nn.Identity()
-        self.skip4 = scSE(256) if use_scse else nn.Identity()
+        self.dec4 = DecoderBlock(512, 256)
+        self.dec3 = DecoderBlock(256, 128)
+        self.dec2 = DecoderBlock(128, 64)
+        self.dec1 = DecoderBlock(64, 64)
 
-        self.bottleneck = ASPP(512, 512) if use_aspp else ConvBNReLU(512, 512)
-
-        self.dec4 = DecoderBlock(512, 256, 256, use_scse=use_scse)
-        self.dec3 = DecoderBlock(256, 128, 128, use_scse=use_scse)
-        self.dec2 = DecoderBlock(128, 64, 64, use_scse=use_scse)
-        self.dec1 = DecoderBlock(64, 64, 64, use_scse=use_scse)
-
-        self.final_up = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
-            ConvBNReLU(64, 64),
+        self.classifier = nn.Sequential(
+            nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, num_classes, kernel_size=1),
         )
-        self.head = nn.Conv2d(64, num_classes, kernel_size=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        s1 = self.stem(x)
-        s2 = self.layer1(self.maxpool(s1))
-        s3 = self.layer2(s2)
-        s4 = self.layer3(s3)
-        x = self.layer4(s4)
+        e0 = self.stem(x)
+        e1 = self.encoder1(self.maxpool(e0))
+        e2 = self.encoder2(e1)
+        e3 = self.encoder3(e2)
+        e4 = self.encoder4(e3)
 
-        x = self.bottleneck(x)
-        x = self.dec4(x, self.skip4(s4))
-        x = self.dec3(x, self.skip3(s3))
-        x = self.dec2(x, self.skip2(s2))
-        x = self.dec1(x, self.skip1(s1))
-        x = self.final_up(x)
-        return self.head(x)
+        d4 = self.dec4(e4) + e3
+        d3 = self.dec3(d4) + e2
+        d2 = self.dec2(d3) + e1
+        d1 = self.dec1(d2)
+        return self.classifier(d1)
