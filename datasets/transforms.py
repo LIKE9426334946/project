@@ -39,7 +39,7 @@ class RandomHorizontalFlip:
 
 
 class RandomVerticalFlip:
-    def __init__(self, p: float = 0.2): #! 原来是0.5
+    def __init__(self, p: float = 0.5):
         self.p = p
 
     def __call__(self, image: Image.Image, mask: Image.Image):
@@ -50,7 +50,7 @@ class RandomVerticalFlip:
 
 
 class RandomRotate90:
-    def __init__(self, p: float = 0.3): #! 原来是0.5
+    def __init__(self, p: float = 0.5):
         self.p = p
 
     def __call__(self, image: Image.Image, mask: Image.Image):
@@ -60,7 +60,14 @@ class RandomRotate90:
             mask = TF.rotate(mask, 90 * k)
         return image, mask
 
-#! 删除ColorJitterOnlyImage类
+
+class ColorJitterOnlyImage:
+    def __init__(self, brightness=0.2, contrast=0.2, saturation=0.2, hue=0.02):
+        self.jitter = T.ColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
+
+    def __call__(self, image: Image.Image, mask: Image.Image):
+        return self.jitter(image), mask
+
 
 class ToTensorAndNormalize:
     def __init__(self, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)):
@@ -74,14 +81,14 @@ class ToTensorAndNormalize:
         return image, mask
 
 
-#! image_size改为(512, 512)
-def get_transforms(image_size=(512, 512)) -> Dict[str, Callable]:
+def get_transforms(image_size=(256, 256)) -> Dict[str, Callable]:
     train_tf = SegCompose(
         [
             Resize(image_size),
             RandomHorizontalFlip(0.5),
-            RandomVerticalFlip(0.2), #! 原来是0.1
+            RandomVerticalFlip(0.1),
             RandomRotate90(0.3),
+            ColorJitterOnlyImage(),
             ToTensorAndNormalize(),
         ]
     )

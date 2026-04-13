@@ -1,23 +1,18 @@
-# project
-本科毕业论文
-
-## 模型结构
-ResNet34 encoder + U-Net decoder + scSE attention + ASPP bottleneck。
-
-## 数据集
-有训练集和验证集  
-将训练集的一部分作为测试集
-
-## 说明
-所有训练输出都保存在runs目录下
+# whdld2
 
 ## 需要修改的地方
+config.yaml文件  
+data.root 修改为数据集根目录  
+data.images_dir 修改为原始图片目录相对于数据集根目录的位置  
+data.masks_dir 修改为标签图片目录相对于数据集根目录的位置
 
+## 
+进入到项目根目录，执行以下命令  
+**分割数据集**  
+python3 utils/split.py  
 
-## 运行步骤
-%cd /kaggle/working
-!rm -rf /kaggle/working/project
-!git clone https://github.com/LIKE9426334946/project.git
-%cd /kaggle/working/project
-!python3 utils/split.py
-!python3 train.py
+**模型训练**  
+python3 train.py  
+
+**评估模型**  
+python3 eval.py
