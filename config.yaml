@@ -38,4 +38,4 @@ loss:
 runs:
   root: runs
 other:
-  name: data1600-deepsupervision
+  name: data1600deepsupervision
